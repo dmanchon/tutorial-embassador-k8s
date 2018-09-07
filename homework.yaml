@@ -1,0 +1,186 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: homework
+provisioner: k8s.io/minikube-hostpath
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+
+---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: homework
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wordpress-config
+data:
+  WORDPRESS_DB_HOST: "mysql"
+  WORDPRESS_DB_USER: "root"
+  WORDPRESS_DEBUG: "1"
+  WORDPRESS_DB_NAME: "homework"
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shared-secrets
+type: Opaque
+data:
+  db.username: cm9vdA==
+  db.password: dGVzdA==
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: server
+          image: mysql:5.7
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shared-secrets
+                  key: db.password
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector:
+    app: mysql
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress
+  labels:
+    app: wordpress
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wordpress
+  template:
+    metadata:
+      labels:
+        app: wordpress
+    spec:
+      containers:
+         - name: wordpress
+           image: wordpress
+           ports:
+             - containerPort: 80
+               name: http-wp
+           envFrom:
+             - configMapRef:
+                 name: wordpress-config
+           env:
+             - name: WORDPRESS_DB_USER
+               valueFrom:
+                 secretKeyRef:
+                   name: shared-secrets
+                   key: db.username
+             - name: WORDPRESS_DB_PASSWORD
+               valueFrom:
+                 secretKeyRef:
+                   name: shared-secrets
+                   key: db.password
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress
+  annotations:
+    getambassador.io/config: |
+      ---
+      apiVersion: ambassador/v0
+      kind:  Mapping
+      name:  wordpress_mapping
+      prefix: /
+      service: wordpress.homework
+spec:
+  selector:
+    app: wordpress
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: http-wp
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-deployment
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: server
+          image: mysql:5.7
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shared-secrets
+                  key: db.password
+          volumeMounts:
+            - name: mysql-vol
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+  - metadata:
+      name: mysql-vol
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: homework
+      resources:
+        requests:
+          storage: 1Gi
