@@ -38,37 +38,6 @@ data:
 
 ---
 
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mysql-deployment
-  labels:
-    app: mysql
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mysql
-  template:
-    metadata:
-      labels:
-        app: mysql
-    spec:
-      containers:
-        - name: server
-          image: mysql:5.7
-          ports:
-            - containerPort: 3306
-              name: mysql
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: shared-secrets
-                  key: db.password
-
----
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -155,6 +124,7 @@ spec:
   selector:
     matchLabels:
       app: mysql
+  serviceName: mysql
   template:
     metadata:
       labels:
@@ -173,14 +143,34 @@ spec:
                   name: shared-secrets
                   key: db.password
           volumeMounts:
-            - name: mysql-vol
+            - name: mysql-data
               mountPath: /var/lib/mysql
+
   volumeClaimTemplates:
   - metadata:
-      name: mysql-vol
+      name: mysql-data
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: homework
+      storageClassName: ""
+      selector:
+        matchLabels:
+          app: mysql
       resources:
         requests:
           storage: 1Gi
+---
+
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/data/mysql"
+  persistentVolumeReclaimPolicy: Retain
